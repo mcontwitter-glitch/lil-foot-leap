@@ -1,0 +1,19 @@
+# OS and editor noise
+.DS_Store
+Thumbs.db
+*.log
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies and Python artifacts
+node_modules/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Large, disposable pre-* PNG backups
+public/**/pre-*.png

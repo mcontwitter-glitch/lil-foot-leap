@@ -1,0 +1,2094 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+  <title>LIL Foot Leap</title>
+  <style>
+    :root {
+      --pink: #ff4da6;
+      --cream: #f4fff8;
+      --fail: #ff3b5c;
+      --pass: #2ee59d;
+      --big: #ffe56a;
+      --hud-bg: #0b1a14d9;
+      --hud-border: #ffffff33;
+      --hud-text: var(--cream);
+      --panel-bg: #0b1a14e6;
+      --risk-low: #2ee59d;
+      --risk-mid: #ffe56a;
+      --risk-high: #ff9a3c;
+      --risk-max: #ff5a2a;
+    }
+    html.contrast {
+      --cream: #ffffff;
+      --hud-bg: #000000ee;
+      --hud-border: #ffffffaa;
+      --hud-text: #ffffff;
+      --panel-bg: #000000f2;
+      --pink: #ff6ec0;
+      --pass: #3dffb0;
+      --fail: #ff5577;
+      --big: #fff06a;
+    }
+    html.contrast .badge,
+    html.contrast .mute-btn,
+    html.contrast .hint,
+    html.contrast .panel {
+      border-color: var(--hud-border);
+      background: var(--hud-bg);
+      color: var(--hud-text);
+    }
+    html.contrast .panel { background: var(--panel-bg); border-color: var(--pink); }
+    html.contrast .pad {
+      border-width: 4px;
+      filter: contrast(1.15) saturate(1.2);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      height: 100svh;
+      height: 100dvh;
+      color: var(--cream);
+      font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
+      overflow: hidden;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      /* thin edge only if any crop shows */
+      background: #0a2a22;
+    }
+    #app {
+      position: relative;
+      flex-shrink: 0;
+      margin: 0;
+      background-color: #000;
+      box-shadow: 0 0 40px #000a, 0 0 0 1px #ffffff14;
+      overflow: hidden;
+      border-radius: 2px;
+    }
+    /* Scene layers: bg + character + pads + splash share one % space; camera transforms this */
+    #world {
+      position: absolute;
+      inset: 0;
+      background-color: #000;
+      background-position: center;
+      background-repeat: no-repeat;
+      background-size: 100% 100%; /* exact map to % hitboxes */
+      background-image: url("./public/scene-play.png?v=35");
+      transform-origin: 0 0;
+      will-change: transform, opacity;
+      z-index: 1;
+    }
+    #world.cam-tween {
+      transition: transform 0.34s cubic-bezier(.22,.8,.25,1), opacity 0.28s ease;
+    }
+    #world.screen-load {
+      opacity: 0.28;
+    }
+    /* desktop / landscape: undistorted 16:9 contain (letterbox with body teal) */
+    @media (orientation: landscape), (min-width: 900px) {
+      html, body {
+        background: #0a2a22; /* subtle teal letterbox */
+      }
+      #app {
+        width: min(100vw, calc(100vh * 16 / 9));
+        height: min(100vh, calc(100vw * 9 / 16));
+        width: min(100vw, calc(100svh * 16 / 9));
+        height: min(100svh, calc(100vw * 9 / 16));
+        width: min(100vw, calc(100dvh * 16 / 9));
+        height: min(100dvh, calc(100vw * 9 / 16));
+      }
+    }
+    /* portrait mobile: exact viewport — stretch scene (no side crop / no height-cover zoom) */
+    @media (orientation: portrait) and (max-width: 899px) {
+      html, body {
+        background: #000;
+      }
+      #app {
+        width: 100vw;
+        height: 100dvh;
+        height: 100svh;
+        max-width: none;
+        border-radius: 0;
+        box-shadow: none;
+      }
+      .topbar {
+        padding: max(8px, env(safe-area-inset-top, 0px)) max(10px, env(safe-area-inset-right, 0px)) 8px max(10px, env(safe-area-inset-left, 0px));
+        gap: 6px;
+      }
+      .badge { padding: 6px 9px; border-radius: 12px; font-size: 13px; }
+      .badge small { font-size: 10px; }
+      .mute-btn { padding: 6px 9px; font-size: 12px; min-height: 34px; border-radius: 12px; }
+      .panel {
+        padding: 10px 12px;
+        border-radius: 16px;
+        border-width: 2px;
+        max-width: min(440px, 94vw);
+        max-height: min(78dvh, 78%);
+        overflow-x: hidden;
+        overflow-y: auto;
+      }
+      .panel h1 {
+        margin: 0 0 4px;
+        font-size: clamp(16px, 4.8vw, 22px);
+      }
+      .panel p {
+        margin: 0 0 6px;
+        font-size: 11px;
+        line-height: 1.3;
+      }
+      .bet-box { padding: 7px; margin-bottom: 6px; border-radius: 12px; }
+      .bet-box label { font-size: 10px; }
+      .mults { gap: 3px; margin-bottom: 6px; font-size: 9px; }
+      .mults span { padding: 2px 6px; }
+      .presets { gap: 4px; }
+      .presets button { padding: 5px 9px; font-size: 11px; min-height: 30px; }
+      .actions { gap: 8px; }
+      button.ui { padding: 11px 18px; font-size: 14px; min-height: 42px; }
+      .hint {
+        font-size: 12px;
+        padding: 6px 12px;
+        bottom: max(5%, calc(env(safe-area-inset-bottom, 0px) + 2%));
+        max-width: min(90vw, 360px);
+        box-sizing: border-box;
+      }
+      .pad {
+        width: max(7%, min(52px, 13vw));
+        min-width: 48px;
+        min-height: 48px;
+      }
+      .pad-hit {
+        position: absolute;
+        inset: -10px;
+        border-radius: 50%;
+      }
+      .topbar {
+        padding-bottom: 10px;
+      }
+      .hint {
+        bottom: max(7%, calc(env(safe-area-inset-bottom, 0px) + 4%));
+      }
+      .center { padding-top: 2%; padding-bottom: 4%; }
+    }
+    #character {
+      position: absolute;
+      width: 8.5%;
+      height: auto;
+      aspect-ratio: auto;
+      object-fit: contain;
+      left: 49.57%;
+      top: 94.58%;
+      transform: translate(-50%, -100%);
+      pointer-events: none;
+      z-index: 5;
+      filter: drop-shadow(0 8px 10px #0006);
+      will-change: left, top, transform, opacity;
+      opacity: 0;
+    }
+    @media (orientation: portrait) and (max-width: 899px) {
+      #character {
+        /* vw-based so portrait stretch on #app doesn't elongate Lil Foot; keep modest */
+        width: min(14vw, 72px);
+      }
+    }
+    #character.jumping { z-index: 8; }
+    #character.fallen { opacity: 0 !important; }
+    #character.eaten { opacity: 0 !important; }
+    #character.sinking {
+      z-index: 4;
+      filter: drop-shadow(0 0 0 transparent) brightness(0.75) saturate(0.7);
+    }
+    #splashFx {
+      position: absolute;
+      width: 22%;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: 7;
+      opacity: 0;
+      transform: translate(-50%, -50%) scale(0.35);
+      background:
+        radial-gradient(circle at 50% 48%, #ffffffee 0 8%, transparent 9%),
+        radial-gradient(circle at 32% 38%, #eaffffdd 0 10%, transparent 11%),
+        radial-gradient(circle at 68% 36%, #b8fff5cc 0 11%, transparent 12%),
+        radial-gradient(circle at 45% 62%, #7adfffbb 0 14%, transparent 15%),
+        radial-gradient(circle at 58% 58%, #2ec7b699 0 18%, transparent 19%),
+        radial-gradient(circle at 50% 50%, transparent 28%, #9fffff66 30%, transparent 34%),
+        radial-gradient(circle at 50% 50%, transparent 42%, #5ee0c855 44%, transparent 50%),
+        radial-gradient(circle at 50% 55%, #1aa88a44 0 55%, transparent 58%);
+      box-shadow: 0 0 30px #7af0ff55;
+    }
+    #splashFx::before, #splashFx::after {
+      content: "";
+      position: absolute;
+      inset: 8%;
+      border-radius: 50%;
+      border: 3px solid #dfffffaa;
+      opacity: 0;
+    }
+    #splashFx.show { animation: splash 0.95s ease-out forwards; }
+    #splashFx.show::before { animation: splashRing 0.95s ease-out forwards; }
+    #splashFx.show::after { animation: splashRing 0.95s ease-out 0.12s forwards; }
+    @keyframes splash {
+      0% { opacity: 0; transform: translate(-50%, -50%) scale(0.25); }
+      18% { opacity: 1; transform: translate(-50%, -50%) scale(1.05); }
+      55% { opacity: 0.85; transform: translate(-50%, -45%) scale(1.45); }
+      100% { opacity: 0; transform: translate(-50%, -35%) scale(1.95); }
+    }
+    @keyframes splashRing {
+      0% { opacity: 0; transform: scale(0.4); border-width: 4px; }
+      25% { opacity: 0.95; }
+      100% { opacity: 0; transform: scale(1.7); border-width: 1px; }
+    }
+    .hud {
+      position: absolute; inset: 0;
+      pointer-events: none;
+      display: flex; flex-direction: column;
+      z-index: 10;
+    }
+    .topbar {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      padding: 12px 14px; gap: 10px;
+      background: linear-gradient(#0b1a14cc, transparent);
+    }
+    .badge {
+      background: var(--hud-bg);
+      border: 2px solid var(--hud-border);
+      border-radius: 14px;
+      padding: 8px 12px;
+      font-weight: 700;
+      color: var(--hud-text);
+      backdrop-filter: blur(6px);
+    }
+    .badge small { display: block; opacity: 0.75; font-weight: 600; font-size: 11px; }
+    .badge small + small { margin-top: 2px; opacity: 0.9; }
+    .badge .big { color: var(--big); }
+
+    .mute-btn, .contrast-btn {
+      pointer-events: auto;
+      touch-action: manipulation;
+      cursor: pointer;
+      flex-shrink: 0;
+      background: var(--hud-bg);
+      border: 2px solid var(--hud-border);
+      border-radius: 14px;
+      padding: 8px 12px;
+      font-weight: 800;
+      font-size: 13px;
+      color: var(--hud-text);
+      backdrop-filter: blur(6px);
+      letter-spacing: 0.02em;
+      min-height: 40px;
+    }
+    .topbar-controls { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; justify-content: flex-end; }
+    .mute-btn[aria-pressed="true"] {
+      opacity: 0.7;
+      border-color: #ffffff55;
+    }
+    .center {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      place-items: center;
+      padding: 1.5% 2%;
+      overflow: hidden;
+    }
+    .panel {
+      pointer-events: auto;
+      text-align: center;
+      background: #0b1a14e6;
+      border: 3px solid #ff4da6;
+      border-radius: 22px;
+      padding: 20px 24px;
+      max-width: min(460px, 94%);
+      max-height: 88%;
+      overflow-x: hidden;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+      box-shadow: 0 12px 40px #0008, inset 0 0 0 1px #fff2;
+    }
+    .panel h1 {
+      margin: 0 0 8px;
+      font-size: clamp(22px, 4vw, 32px);
+      color: #ff7ec8;
+      text-shadow: 0 2px 0 #0006;
+    }
+    .panel p { margin: 0 0 14px; line-height: 1.4; opacity: 0.92; font-size: 14px; }
+    .bet-box {
+      background: #ffffff10;
+      border-radius: 14px;
+      padding: 12px;
+      margin-bottom: 14px;
+      text-align: left;
+    }
+    .bet-box label { font-size: 12px; opacity: 0.8; font-weight: 700; }
+    .bet-row { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+    .bet-row input[type="range"] { flex: 1; }
+    .bet-val { font-weight: 800; color: var(--big); min-width: 7ch; text-align: right; }
+    .presets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .presets button {
+      pointer-events: auto;
+      touch-action: manipulation;
+      border: 1px solid #ffffff44;
+      background: #ffffff14;
+      color: var(--cream);
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .mults { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 12px; font-size: 12px; font-weight: 700; }
+    .mults span {
+      background: #ffffff12;
+      border-radius: 999px;
+      padding: 4px 10px;
+      border: 1px solid #ffffff22;
+    }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+    button.ui {
+      pointer-events: auto;
+      touch-action: manipulation;
+      cursor: pointer;
+      border: 0;
+      border-radius: 999px;
+      padding: 12px 22px;
+      font-size: 16px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      color: #140818;
+      background: linear-gradient(180deg, #ff9ad0, var(--pink));
+      box-shadow: 0 6px 0 #9c1860, 0 10px 24px #0006;
+    }
+    button.ui:disabled { opacity: 0.45; cursor: not-allowed; }
+    button.ui.ghost {
+      background: #ffffff18;
+      color: var(--cream);
+      box-shadow: none;
+      border: 2px solid #ffffff44;
+    }
+    button.ui.alt {
+      background: linear-gradient(180deg, #7dffe0, #1ec9a0);
+      box-shadow: 0 6px 0 #0e7a60, 0 10px 24px #0006;
+      color: #04241c;
+    }
+    .hint {
+      position: absolute; left: 50%; bottom: 5%;
+      transform: translateX(-50%);
+      pointer-events: none;
+      background: #0b1a14d0;
+      border-radius: 999px;
+      padding: 8px 14px;
+      font-weight: 700;
+      border: 2px solid #ffffff33;
+      opacity: 0;
+      transition: opacity .2s;
+    }
+    .hint.show { opacity: 1; }
+    #pads { position: absolute; inset: 0; z-index: 6; pointer-events: none; }
+    .pad {
+      position: absolute;
+      width: max(6.2%, 44px);
+      aspect-ratio: 1.55 / 1;
+      border-radius: 50%;
+      cursor: pointer;
+      pointer-events: auto;
+      touch-action: manipulation;
+      background: radial-gradient(circle at 35% 30%, #9bffb388, #1f8f3e66 50%, #0a402044);
+      border: 3px solid #eafff0ee;
+      box-shadow: 0 0 0 3px #2ee59d55, 0 8px 18px #0005;
+      transform: translate(-50%, -50%);
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+    .pad:hover, .pad:focus-visible {
+      outline: none;
+      transform: translate(-50%, -50%) scale(1.1);
+      border-color: #fff;
+      box-shadow: 0 0 0 4px #ff4da688, 0 10px 22px #0007;
+    }
+    .pad.disabled { pointer-events: none; opacity: 0.25; animation: none; }
+    .pad.chosen-pass {
+      border-color: var(--pass);
+      box-shadow: 0 0 0 5px #2ee59d88, 0 0 30px #2ee59daa;
+      animation: none; opacity: 1;
+    }
+    .pad.chosen-fail {
+      border-color: var(--fail);
+      box-shadow: 0 0 0 5px #ff3b5c88, 0 0 30px #ff3b5caa;
+      animation: none; opacity: 1;
+    }
+
+    .pad.reveal {
+      pointer-events: none;
+      animation: none;
+      opacity: 0.95;
+    }
+    .pad.reveal-safe {
+      border-color: var(--pass);
+      box-shadow: 0 0 0 3px #2ee59d66, 0 6px 14px #0005;
+    }
+    .pad.reveal-fail {
+      border-color: var(--fail);
+      box-shadow: 0 0 0 3px #ff3b5c55, 0 6px 14px #0005;
+      opacity: 0.85;
+    }
+    .pad .mark {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      font-size: clamp(14px, 2.8vw, 22px);
+      font-weight: 900;
+      line-height: 1;
+      text-shadow: 0 1px 0 #000a, 0 0 6px #0008;
+      pointer-events: none;
+    }
+    .pad.reveal-fail .mark { color: #ff3b5c; }
+    .pad.reveal-safe .mark { color: #2ee59d; }
+
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 2px #2ee59d33, 0 8px 18px #0005; }
+      50% { box-shadow: 0 0 0 8px #ff4da644, 0 8px 18px #0005; }
+    }
+    .banner {
+      position: absolute; left: 50%; top: 14%;
+      transform: translate(-50%, -50%);
+      font-size: clamp(36px, 7vw, 64px);
+      font-weight: 900;
+      letter-spacing: 0.06em;
+      text-shadow: 0 4px 0 #0008;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 12;
+    }
+    .banner.show { opacity: 1; transform: translate(-50%, -60%) scale(1.05); transition: opacity .15s, transform .25s; }
+    .banner.pass { color: var(--pass); }
+    .banner.fail { color: var(--fail); }
+
+    /* Level 2 swamp: rock pads */
+    #world.theme-l2 {
+      background-image: url("./public/scene-l2-play.png?v=35");
+    }
+    #world.theme-l2 .pad {
+      aspect-ratio: 1.25 / 1;
+      border-radius: 46%;
+      background:
+        radial-gradient(circle at 32% 28%, #d5d5d5cc, #8a8a8a99 42%, #4a4a4a77 70%, #2a2a2a55),
+        repeating-linear-gradient(135deg, #ffffff10 0 2px, transparent 2px 6px);
+      border: 3px solid #ececeeee;
+      box-shadow: 0 0 0 3px #9aa0a655, 0 8px 18px #0007, inset 0 -4px 8px #0004;
+    }
+    #world.theme-l2 .pad:hover, #world.theme-l2 .pad:focus-visible {
+      border-color: #fff;
+      box-shadow: 0 0 0 4px #ff4da688, 0 10px 22px #0007;
+    }
+    @keyframes pulseRock {
+      0%, 100% { box-shadow: 0 0 0 2px #9aa0a644, 0 8px 18px #0005; }
+      50% { box-shadow: 0 0 0 8px #ff4da644, 0 8px 18px #0005; }
+    }
+    #world.theme-l2 .pad { animation-name: pulseRock; }
+    #world.theme-l2 .pad.risk-low {
+      border-color: #c8ffe0ee;
+      box-shadow: 0 0 0 3px #2ee59d55, 0 8px 18px #0007;
+      animation-name: pulseRisk;
+    }
+    #world.theme-l2 .pad.risk-mid {
+      border-color: #ffe56aee;
+      box-shadow: 0 0 0 3px #ffe56a55, 0 8px 18px #0007;
+      animation-name: pulseRisk;
+    }
+    #world.theme-l2 .pad.risk-high, #world.theme-l2 .pad.risk-max {
+      border-color: #ff9a3cee;
+      box-shadow: 0 0 0 4px #ff9a3c66, 0 8px 20px #0007, 0 0 18px #ff9a3c44;
+      animation-name: pulseRisk;
+    }
+    #world.theme-l2 .pad.mystery {
+      border-color: #d4c0ffee !important;
+    }
+    #alligatorFx {
+      position: absolute;
+      width: 32%;
+      max-width: 360px;
+      height: auto;
+      pointer-events: none;
+      z-index: 9;
+      opacity: 0;
+      background: transparent;
+      transform: translate(-50%, 18%) scale(0.6) rotate(-10deg);
+      transform-origin: 42% 58%;
+      filter: drop-shadow(0 12px 18px #000c);
+      will-change: transform, opacity;
+    }
+    #alligatorFx.show {
+      animation: alligatorLeapBite 1.0s ease-out forwards;
+    }
+    /* 0–200ms leap up, 200–350ms bite snap, 350–1000ms hold + fade */
+    @keyframes alligatorLeapBite {
+      0% {
+        opacity: 0;
+        transform: translate(-50%, 22%) scale(0.6) rotate(-12deg);
+      }
+      20% {
+        opacity: 1;
+        transform: translate(-50%, -48%) scale(1.05) rotate(-3deg);
+      }
+      28% {
+        opacity: 1;
+        transform: translate(-50%, -52%) scale(1.28, 0.82) rotate(6deg);
+      }
+      35% {
+        opacity: 1;
+        transform: translate(-50%, -46%) scale(0.92, 1.12) rotate(-4deg);
+      }
+      55% {
+        opacity: 1;
+        transform: translate(-50%, -44%) scale(1.02) rotate(1deg);
+      }
+      100% {
+        opacity: 0;
+        transform: translate(-50%, -38%) scale(0.98) rotate(0deg);
+      }
+    }
+    .hidden { display: none !important; }
+
+    /* Short / narrow stages: keep start/pass/fail usable */
+    @media (max-width: 560px), (max-height: 420px) {
+      .topbar { padding: 8px 10px; gap: 6px; }
+      .badge { padding: 6px 9px; border-radius: 12px; font-size: 13px; }
+      .badge small { font-size: 10px; }
+      .panel {
+        padding: 12px 14px;
+        border-radius: 16px;
+        border-width: 2px;
+        max-height: 90%;
+      }
+      .panel h1 {
+        margin: 0 0 4px;
+        font-size: clamp(18px, 5.2vw, 24px);
+      }
+      .panel p {
+        margin: 0 0 8px;
+        font-size: 12px;
+        line-height: 1.35;
+      }
+      .bet-box { padding: 8px; margin-bottom: 8px; border-radius: 12px; }
+      .bet-box label { font-size: 11px; }
+      .mults {
+        gap: 4px;
+        margin-bottom: 8px;
+        font-size: 10px;
+      }
+      .mults span { padding: 3px 7px; }
+      .presets { gap: 5px; }
+      .presets button { padding: 5px 9px; font-size: 11px; }
+      .actions { gap: 8px; }
+      button.ui { padding: 10px 18px; font-size: 14px; }
+      .hint { font-size: 12px; padding: 6px 12px; }
+    }
+
+    .player-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin: 0 0 12px;
+      padding: 8px 10px;
+      background: #ffffff10;
+      border: 1px solid #ffffff22;
+      border-radius: 14px;
+      text-align: left;
+    }
+    .player-row-meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+      flex: 1;
+    }
+    .player-preview {
+      width: 44px;
+      height: 44px;
+      object-fit: contain;
+      flex-shrink: 0;
+      filter: drop-shadow(0 2px 4px #0008);
+      background: #0a1812aa;
+      border-radius: 10px;
+      border: 1px solid #ffffff22;
+      padding: 2px;
+    }
+    .player-name {
+      font-weight: 800;
+      font-size: 14px;
+      color: var(--cream);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .player-name small {
+      display: block;
+      font-weight: 600;
+      font-size: 10px;
+      opacity: 0.7;
+      margin-top: 1px;
+    }
+    button.switch-player {
+      pointer-events: auto;
+      touch-action: manipulation;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      flex-shrink: 0;
+      border: 2px solid #ffffff44;
+      background: #ffffff14;
+      color: var(--cream);
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+      min-height: 40px;
+    }
+    button.switch-player img {
+      width: 22px;
+      height: 22px;
+      object-fit: contain;
+      flex-shrink: 0;
+    }
+    button.switch-player:active { transform: scale(0.97); }
+    @media (orientation: portrait) and (max-width: 899px) {
+      .player-row { margin-bottom: 8px; padding: 6px 8px; gap: 8px; border-radius: 12px; }
+      .player-preview { width: 38px; height: 38px; border-radius: 8px; }
+      .player-name { font-size: 13px; }
+      .player-name small { font-size: 9px; }
+      button.switch-player { padding: 7px 10px; font-size: 11px; min-height: 36px; gap: 5px; }
+      button.switch-player img { width: 18px; height: 18px; }
+    }
+
+    /* === A) Risk glow hierarchy === */
+    .pad.risk-low {
+      --pad-glow: var(--risk-low);
+      background: radial-gradient(circle at 35% 30%, #9bffb3aa, #1f8f3e77 50%, #0a402055);
+      border-color: #c8ffe0ee;
+      box-shadow: 0 0 0 3px #2ee59d44, 0 8px 18px #0005;
+      animation: pulseRisk 1.8s ease-in-out infinite;
+    }
+    .pad.risk-mid {
+      --pad-glow: var(--risk-mid);
+      background: radial-gradient(circle at 35% 30%, #ffe9a0aa, #c9a02066 50%, #4a301055);
+      border-color: #ffe56aee;
+      box-shadow: 0 0 0 3px #ffe56a55, 0 8px 18px #0005;
+      animation: pulseRisk 1.2s ease-in-out infinite;
+    }
+    .pad.risk-high {
+      --pad-glow: var(--risk-high);
+      background: radial-gradient(circle at 35% 30%, #ffc080aa, #d0602066 50%, #4a180855);
+      border-color: #ff9a3cee;
+      box-shadow: 0 0 0 4px #ff9a3c66, 0 8px 20px #0006, 0 0 18px #ff9a3c44;
+      animation: pulseRisk 0.85s ease-in-out infinite;
+    }
+    .pad.risk-max {
+      --pad-glow: var(--risk-max);
+      background: radial-gradient(circle at 35% 30%, #ffb090bb, #e0402066 50%, #50100855);
+      border-color: #ff5a2aee;
+      box-shadow: 0 0 0 5px #ff5a2a77, 0 8px 22px #0007, 0 0 28px #ff5a2a66;
+      animation: pulseRisk 0.65s ease-in-out infinite;
+    }
+    @keyframes pulseRisk {
+      0%, 100% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--pad-glow) 35%, transparent), 0 8px 18px #0005; }
+      50% { box-shadow: 0 0 0 calc(6px + var(--pulse-boost, 2px)) color-mix(in srgb, var(--pad-glow) 55%, transparent), 0 8px 18px #0005, 0 0 calc(12px + var(--pulse-boost, 2px)) color-mix(in srgb, var(--pad-glow) 40%, transparent); }
+    }
+    .pad.risk-high::after, .pad.risk-max::after {
+      content: "";
+      position: absolute;
+      inset: -4px;
+      border-radius: 50%;
+      pointer-events: none;
+      background:
+        radial-gradient(circle at 20% 30%, #fff8 0 1.5px, transparent 2px),
+        radial-gradient(circle at 70% 25%, #ffec 0 1.2px, transparent 2px),
+        radial-gradient(circle at 40% 70%, #ffc8 0 1px, transparent 2px),
+        radial-gradient(circle at 80% 60%, #fff6 0 1.4px, transparent 2px);
+      animation: sparkle 1.4s linear infinite;
+      opacity: 0.85;
+    }
+    .pad.risk-max::after { animation-duration: 0.9s; opacity: 1; }
+    @keyframes sparkle {
+      0% { transform: rotate(0deg) scale(1); opacity: 0.5; }
+      50% { transform: rotate(180deg) scale(1.08); opacity: 1; }
+      100% { transform: rotate(360deg) scale(1); opacity: 0.5; }
+    }
+    .pad.mystery {
+      background: radial-gradient(circle at 35% 30%, #c8b0ffaa, #5a3a9a66 50%, #20104055) !important;
+      border-color: #d4c0ffee !important;
+    }
+    .pad.mystery .mystery-mark {
+      position: absolute; inset: 0; display: grid; place-items: center;
+      font-size: clamp(16px, 3vw, 24px); font-weight: 900; color: #efe8ff;
+      text-shadow: 0 1px 0 #000a; pointer-events: none; z-index: 1;
+    }
+    .pad.near-miss {
+      outline: 2px dashed #ffe56aaa;
+      outline-offset: 3px;
+      box-shadow: 0 0 0 3px #ffe56a44, 0 0 20px #ffe56a55 !important;
+    }
+    .pad.near-miss::before {
+      content: "so close";
+      position: absolute;
+      left: 50%; top: -18px;
+      transform: translateX(-50%);
+      font-size: 9px; font-weight: 800;
+      color: var(--big);
+      white-space: nowrap;
+      text-shadow: 0 1px 2px #000a;
+      pointer-events: none;
+    }
+
+    /* === B) Live preview tip + jump trail === */
+    #padTip {
+      position: absolute;
+      z-index: 15;
+      pointer-events: none;
+      background: var(--hud-bg);
+      border: 2px solid var(--hud-border);
+      border-radius: 12px;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--hud-text);
+      backdrop-filter: blur(6px);
+      opacity: 0;
+      transform: translate(-50%, -120%) scale(0.92);
+      transition: opacity .15s, transform .15s;
+      white-space: nowrap;
+      box-shadow: 0 8px 20px #0008;
+    }
+    #padTip.show { opacity: 1; transform: translate(-50%, -130%) scale(1); }
+    #padTip small { display: block; opacity: 0.8; font-weight: 600; font-size: 10px; margin-top: 2px; }
+    .jump-trail {
+      position: absolute;
+      pointer-events: none;
+      z-index: 4;
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      background: radial-gradient(circle, #9bffd8cc, transparent 70%);
+      transform: translate(-50%, -50%);
+      animation: trailFade 0.7s ease-out forwards;
+    }
+    @keyframes trailFade {
+      0% { opacity: 0.9; transform: translate(-50%, -50%) scale(0.6); }
+      100% { opacity: 0; transform: translate(-50%, -50%) scale(2.2); }
+    }
+    .jump-ripple {
+      position: absolute;
+      pointer-events: none;
+      z-index: 4;
+      border: 2px solid #2ee59daa;
+      border-radius: 50%;
+      width: 20px; height: 20px;
+      transform: translate(-50%, -50%);
+      animation: rippleOut 0.55s ease-out forwards;
+    }
+    @keyframes rippleOut {
+      0% { opacity: 0.9; width: 16px; height: 16px; }
+      100% { opacity: 0; width: 70px; height: 70px; }
+    }
+
+    /* === C) Progress & streak === */
+    .progress-wrap {
+      margin-top: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 120px;
+    }
+    .seg-bar {
+      display: flex; gap: 3px; height: 6px;
+    }
+    .seg-bar span {
+      flex: 1; border-radius: 3px;
+      background: #ffffff22;
+      border: 1px solid #ffffff18;
+    }
+    .seg-bar span.done { background: var(--pass); border-color: #2ee59d88; }
+    .seg-bar span.current { background: var(--big); border-color: #ffe56a88; box-shadow: 0 0 6px #ffe56a66; }
+    .odds-line {
+      font-size: 10px; font-weight: 700; opacity: 0.85;
+      letter-spacing: 0.02em;
+    }
+    #comboBadge {
+      position: absolute;
+      right: 14px; top: 58px;
+      z-index: 14;
+      pointer-events: none;
+      background: var(--hud-bg);
+      border: 2px solid var(--hud-border);
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-weight: 900;
+      font-size: 13px;
+      color: var(--big);
+      opacity: 0;
+      transform: scale(0.6);
+      transition: opacity .2s, transform .25s cubic-bezier(.2,1.4,.3,1);
+    }
+    #comboBadge.show { opacity: 1; transform: scale(1); }
+    #comboBadge.pop { animation: comboPop 0.45s ease; }
+    @keyframes comboPop {
+      0% { transform: scale(0.7); }
+      40% { transform: scale(1.25); }
+      100% { transform: scale(1); }
+    }
+
+    /* === D) Character micro-animations (#character) === */
+    #character.idle {
+      animation: idleBob 1.6s ease-in-out infinite;
+    }
+    @keyframes idleBob {
+      0%, 100% { translate: 0 0; }
+      50% { translate: 0 -3%; }
+    }
+    #character.anticipate {
+      animation: hopAnticipate 0.22s ease-out forwards;
+    }
+    @keyframes hopAnticipate {
+      0% { scale: 1 1; }
+      60% { scale: 1.12 0.78; }
+      100% { scale: 1.05 0.88; }
+    }
+    #character.celebrate {
+      animation: celebrateHop 0.55s ease-out;
+    }
+    @keyframes celebrateHop {
+      0% { scale: 1 1; rotate: 0deg; }
+      30% { scale: 1.08 0.92; rotate: -4deg; }
+      55% { scale: 0.95 1.08; rotate: 4deg; }
+      100% { scale: 1 1; rotate: 0deg; }
+    }
+    #character.fail-react {
+      animation: failShake 0.4s ease-in-out;
+    }
+    @keyframes failShake {
+      0%, 100% { rotate: 0deg; }
+      25% { rotate: -12deg; }
+      50% { rotate: 10deg; }
+      75% { rotate: -6deg; }
+    }
+
+    /* === E) Fail flash === */
+    #failFlash {
+      position: absolute; inset: 0;
+      z-index: 11;
+      pointer-events: none;
+      background: radial-gradient(circle at 50% 55%, #ff3b5c66, #ff3b5c22 40%, transparent 70%);
+      opacity: 0;
+    }
+    #failFlash.show { animation: failFlashAnim 0.55s ease-out forwards; }
+    @keyframes failFlashAnim {
+      0% { opacity: 0; }
+      25% { opacity: 1; }
+      100% { opacity: 0; }
+    }
+
+    /* === G/H menu extras === */
+    .risk-profiles {
+      display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;
+      margin: 0 0 10px;
+    }
+    .risk-profiles button {
+      pointer-events: auto; touch-action: manipulation; cursor: pointer;
+      border: 2px solid #ffffff33; background: #ffffff12; color: var(--cream);
+      border-radius: 999px; padding: 6px 12px; font-size: 12px; font-weight: 800;
+    }
+    .risk-profiles button.active {
+      border-color: var(--pink); background: #ff4da633; box-shadow: 0 0 0 2px #ff4da644;
+    }
+    .coming-soon {
+      margin: 10px 0 0; font-size: 11px; opacity: 0.65; line-height: 1.35;
+    }
+    .seed-row {
+      display: flex; gap: 6px; align-items: center; margin-top: 8px; flex-wrap: wrap;
+    }
+    .seed-row input {
+      flex: 1; min-width: 100px; background: #ffffff12; border: 1px solid #ffffff33;
+      border-radius: 8px; color: var(--cream); padding: 6px 8px; font-size: 11px;
+    }
+    .fairness {
+      margin-top: 10px; text-align: left; font-size: 11px;
+      background: #ffffff0c; border-radius: 10px; padding: 8px 10px;
+      border: 1px solid #ffffff22; word-break: break-all;
+    }
+    .fairness summary { cursor: pointer; font-weight: 800; }
+    .share-actions { margin-top: 8px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+
+    /* Hit area helper */
+    .pad { min-height: 32px; }
+    @media (pointer: coarse) {
+      .pad { min-width: 48px; min-height: 48px; }
+    }
+
+  </style>
+</head>
+<body>
+  <div id="app" role="application" aria-label="LIL Foot Leap">
+    <div id="world">
+      <img id="character" src="./public/character.png?v=35" alt="" draggable="false" />
+      <div id="splashFx"></div>
+      <img id="alligatorFx" src="./public/alligator.png?v=35" alt="" draggable="false" />
+      <div id="pads"></div>
+      <div id="padTip" aria-hidden="true"></div>
+    </div>
+    <div id="failFlash" aria-hidden="true"></div>
+    <div id="comboBadge" aria-live="polite">Combo ×0</div>
+
+    <div class="hud">
+      <div class="topbar">
+        <div class="badge">LIL Foot Leap<small id="levelBadge">Level 1 · Pond</small><small id="rowBadge">Row 1 · 2 pads · 1/2</small>
+          <div class="progress-wrap">
+            <div class="seg-bar" id="segBar" aria-hidden="true"></div>
+            <div class="odds-line" id="oddsLine">Odds: 1/2 safe · ~50%</div>
+          </div>
+        </div>
+        <div class="topbar-controls">
+          <button type="button" class="contrast-btn" id="contrastBtn" aria-pressed="false" aria-label="High contrast" title="High contrast">◐ Contrast</button>
+          <button type="button" class="mute-btn" id="muteBtn" aria-pressed="false" aria-label="Mute sound" title="Mute">🔊 Sound</button>
+          <div class="badge"><span class="big">$BIG</span> <span id="balBadge">100,000</span><small id="oddsBadge">Bet 100 · 1.25x → 5x</small></div>
+        </div>
+      </div>
+      <div class="center">
+        <div class="panel" id="startPanel">
+          <h1>LIL Foot Leap</h1>
+          <div class="player-row" id="playerRow">
+            <div class="player-row-meta">
+              <img id="playerPreview" class="player-preview" src="./public/character.png?v=35" alt="" draggable="false" />
+              <div class="player-name" id="playerNameLabel">Lil Foot<small>Player</small></div>
+            </div>
+            <button type="button" class="switch-player" id="switchPlayerBtn" aria-label="Switch Player" title="Switch Player">
+              <img src="./public/ui/switch-player.png?v=35" alt="" draggable="false" />
+              <span>Switch Player</span>
+            </button>
+          </div>
+          <p>Stake <b class="big">$BIG</b>, leap five rows of pads. Ladder: <b>1.25x → 2x → 3x → 4x → 5x</b>. Cash out anytime after a pass — or splash under and lose the stake. Clear the pond to unlock <b>Level 2 · Swamp</b> (rocks + alligator — up to <b>50x</b>).</p>
+          <div class="mults"><span>Row 1 · 1/2 · 1.25x</span><span>Row 2 · 1/3 · 2x</span><span>Row 3 · 2/4 · 3x</span><span>Row 4 · 2/4 · 4x</span><span>Row 5 · 1/2 · 5x</span></div>
+          <div class="bet-box">
+            <label for="betRange">Stake ($BIG) — min 100 · max 100,000</label>
+            <div class="bet-row">
+              <input id="betRange" type="range" min="100" max="100000" step="100" value="100" />
+              <div class="bet-val" id="betVal">100</div>
+            </div>
+            <div class="presets">
+              <button type="button" data-bet="100">100</button>
+              <button type="button" data-bet="500">500</button>
+              <button type="button" data-bet="1000">1k</button>
+              <button type="button" data-bet="5000">5k</button>
+              <button type="button" data-bet="10000">10k</button>
+              <button type="button" data-bet="100000">100k</button>
+            </div>
+          </div>
+          <div class="bet-box" style="margin-top:0;">
+            <label>Risk profile</label>
+            <div class="risk-profiles" id="riskProfiles" role="group" aria-label="Risk profile">
+              <button type="button" data-profile="conservative">Conservative</button>
+              <button type="button" data-profile="balanced" class="active">Balanced</button>
+              <button type="button" data-profile="high-roller">High-Roller</button>
+            </div>
+            <label for="clientSeedInput">Client seed (optional)</label>
+            <div class="seed-row">
+              <input id="clientSeedInput" type="text" maxlength="64" placeholder="random if blank" autocomplete="off" />
+            </div>
+          </div>
+          <div class="actions">
+            <button class="ui" id="startBtn" type="button">START</button>
+            <button class="ui alt" id="swampSkipBtn" type="button">SWAMP · 6,666 $BIG</button>
+          </div>
+          <p id="swampSkipHint" style="margin:8px 0 0;font-size:12px;opacity:.85;">Skip the pond — pay a <b class="big">6,666 $BIG</b> entry fee, then play Level 2 with your chosen stake below (10x → 50x).</p>
+          <p class="coming-soon">Coming soon: wallets · leaderboards · streamer mode · seasonal events</p>
+        </div>
+        <div class="panel hidden" id="passPanel">
+          <h1>Safe landing!</h1>
+          <p id="passText"></p>
+          <div class="actions">
+            <button class="ui alt" id="continueBtn" type="button">CONTINUE</button>
+            <button class="ui" id="cashOutBtn" type="button">CASH OUT</button>
+          </div>
+          <details class="fairness" id="fairnessPass"><summary>Fairness</summary><div id="fairnessPassBody"></div></details>
+          <div class="share-actions">
+            <button class="ui ghost" id="sharePassBtn" type="button">Share result</button>
+          </div>
+        </div>
+        <div class="panel hidden" id="failPanel">
+          <h1 id="failTitle">Splash…</h1>
+          <p id="failText"></p>
+          <div class="actions">
+            <button class="ui" id="againBtn" type="button">TRY AGAIN</button>
+            <button class="ui ghost" id="menuBtn" type="button">MENU</button>
+          </div>
+          <details class="fairness" id="fairnessFail"><summary>Fairness</summary><div id="fairnessFailBody"></div></details>
+          <div class="share-actions">
+            <button class="ui ghost" id="shareFailBtn" type="button">Share result</button>
+          </div>
+        </div>
+      </div>
+      <div class="hint" id="hint">Tap a glowing pad</div>
+    </div>
+    <div class="banner" id="banner"></div>
+  </div>
+  <script>
+    // Centers measured from live scene / play screenshot (percent of stage)
+    const ROWS = [
+      { count: 2, pass: 1, y: 54.5, xs: [38.6, 63.0], label: "Row 1", mult: 1.25 },
+      { count: 3, pass: 1, y: 43.5, xs: [22.0, 50.0, 77.9], label: "Row 2", mult: 2.0 },
+      { count: 4, pass: 2, y: 35.4, xs: [28.7, 42.9, 57.1, 71.3], label: "Row 3", mult: 3.0 },
+      { count: 4, pass: 2, y: 28.9, xs: [28.7, 42.9, 57.1, 71.3], label: "Row 4", mult: 4.0 },
+      { count: 2, pass: 1, y: 21.9, xs: [41.5, 58.5], label: "Row 5", mult: 5.0 },
+    ];
+    // Level 2 swamp rocks — centers measured from scene-l2-play.png (1280×720)
+    const LEVEL2_ROWS = [
+      { count: 2, pass: 1, y: 67.3, xs: [34.0, 66.0], label: "Row 1", mult: 10 },
+      { count: 3, pass: 1, y: 59.0, xs: [26.0, 50.0, 74.0], label: "Row 2", mult: 15 },
+      { count: 4, pass: 2, y: 52.0, xs: [22.0, 40.0, 60.0, 78.0], label: "Row 3", mult: 20 },
+      { count: 4, pass: 2, y: 46.0, xs: [24.0, 42.0, 58.0, 76.0], label: "Row 4", mult: 30 },
+      { count: 2, pass: 1, y: 36.8, xs: [38.0, 62.0], label: "Row 5", mult: 50 },
+    ];
+    function activeRows() { return level === 2 ? LEVEL2_ROWS : ROWS; }
+
+    const padsRoot = document.getElementById("pads");
+    const app = document.getElementById("app");
+    const world = document.getElementById("world");
+    const startPanel = document.getElementById("startPanel");
+    const passPanel = document.getElementById("passPanel");
+    const failPanel = document.getElementById("failPanel");
+    const hint = document.getElementById("hint");
+    const banner = document.getElementById("banner");
+    const character = document.getElementById("character");
+    const splashFx = document.getElementById("splashFx");
+    const alligatorFx = document.getElementById("alligatorFx");
+    const rowBadge = document.getElementById("rowBadge");
+    const levelBadge = document.getElementById("levelBadge");
+    const failTitle = document.getElementById("failTitle");
+    const oddsBadge = document.getElementById("oddsBadge");
+    const balBadge = document.getElementById("balBadge");
+    const passText = document.getElementById("passText");
+    const failText = document.getElementById("failText");
+    const continueBtn = document.getElementById("continueBtn");
+    const cashOutBtn = document.getElementById("cashOutBtn");
+    const betRange = document.getElementById("betRange");
+    const betVal = document.getElementById("betVal");
+    const startBtn = document.getElementById("startBtn");
+    const swampSkipBtn = document.getElementById("swampSkipBtn");
+    const SWAMP_SKIP_COST = 6666;
+
+    const START_L1 = { x: 49.57, y: 94.58 };
+    const START_L2 = { x: 49.88, y: 89.17 };
+    const START = START_L1; // mutated via shoreStart()
+    const LS_KEY = "lil-foot-leap-big-v3";
+
+    const PLAYER_KEY = "lil-foot-leap-player";
+    const PLAYERS = [
+      { id: "lil-foot", name: "Lil Foot", src: "./public/character.png?v=35" },
+      { id: "ape", name: "Bandana Ape", src: "./public/characters/ape.png?v=35" },
+      { id: "bow-yeti", name: "Bow Yeti", src: "./public/characters/bow-yeti.png?v=35" },
+    ];
+    let playerId = localStorage.getItem(PLAYER_KEY) || "lil-foot";
+    if (!PLAYERS.some((p) => p.id === playerId)) playerId = "lil-foot";
+    const playerPreview = document.getElementById("playerPreview");
+    const playerNameLabel = document.getElementById("playerNameLabel");
+    const switchPlayerBtn = document.getElementById("switchPlayerBtn");
+
+    function currentPlayer() {
+      return PLAYERS.find((p) => p.id === playerId) || PLAYERS[0];
+    }
+    function applyPlayer(id, { persist = true } = {}) {
+      if (!PLAYERS.some((p) => p.id === id)) id = "lil-foot";
+      playerId = id;
+      if (persist) localStorage.setItem(PLAYER_KEY, playerId);
+      const p = currentPlayer();
+      character.src = p.src;
+      if (playerPreview) playerPreview.src = p.src;
+      if (playerNameLabel) {
+        playerNameLabel.innerHTML = `${p.name}<small>Player</small>`;
+      }
+      // Keep shore sprite visible while switching on the menu
+      const onMenu = startPanel && !startPanel.classList.contains("hidden");
+      if (onMenu) {
+        character.classList.remove("jumping", "fallen", "sinking", "eaten", "idle", "anticipate", "celebrate", "fail-react");
+        character.style.opacity = "1";
+        const shore = shoreStart();
+        setChar(shore.x, shore.y);
+      }
+    }
+    function cyclePlayer() {
+      const i = PLAYERS.findIndex((p) => p.id === playerId);
+      const next = PLAYERS[(i + 1) % PLAYERS.length];
+      applyPlayer(next.id);
+    }
+
+    // Audio: procedural WAVs under public/audio/ (gen_audio.py). Attribution: original generated, CC0-equivalent.
+    const MUTE_KEY = "lil-foot-leap-mute";
+    const bgm = new Audio("./public/audio/nature-loop.wav?v=35");
+    bgm.loop = true;
+    bgm.volume = 0.22;
+    bgm.preload = "auto";
+    const sfxSplash = new Audio("./public/audio/splash.wav?v=35");
+    sfxSplash.volume = 0.72;
+    sfxSplash.preload = "auto";
+    const sfxPass = new Audio("./public/audio/cha-ching.wav?v=35");
+    sfxPass.volume = 0.55;
+    sfxPass.preload = "auto";
+    const sfxChomp = new Audio("./public/audio/chomp.wav?v=35");
+    sfxChomp.volume = 0.78;
+    sfxChomp.preload = "auto";
+    let muted = localStorage.getItem(MUTE_KEY) === "1";
+    let audioStarted = false;
+    const muteBtn = document.getElementById("muteBtn");
+
+    function syncMuteUi() {
+      muteBtn.setAttribute("aria-pressed", muted ? "true" : "false");
+      muteBtn.textContent = muted ? "🔇 Muted" : "🔊 Sound";
+      muteBtn.setAttribute("aria-label", muted ? "Unmute sound" : "Mute sound");
+      muteBtn.title = muted ? "Unmute" : "Mute";
+    }
+    function setMuted(next) {
+      muted = !!next;
+      localStorage.setItem(MUTE_KEY, muted ? "1" : "0");
+      syncMuteUi();
+      if (muted) {
+        bgm.pause();
+      } else if (audioStarted) {
+        bgm.play().catch(() => {});
+      }
+    }
+    function ensureAudio() {
+      if (audioStarted) return;
+      audioStarted = true;
+      if (!muted) {
+        bgm.currentTime = 0;
+        bgm.play().catch(() => {});
+      }
+    }
+    function playOneShot(el) {
+      if (muted || !audioStarted) return;
+      try {
+        el.pause();
+        el.currentTime = 0;
+        el.play().catch(() => {});
+      } catch (_) {}
+    }
+    function playSplashSfx() { playOneShot(sfxSplash); }
+    function playPassSfx() { playOneShot(sfxPass); }
+    function playChompSfx() { playOneShot(sfxChomp); }
+    muteBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      ensureAudio();
+      setMuted(!muted);
+    });
+    syncMuteUi();
+
+    let balance = Number(localStorage.getItem(LS_KEY) || 100000);
+    let bet = 100;
+    let level = 1;
+    let rowIndex = 0;
+    let safeByRow = []; // number[][] — pre-rolled safe indices per row
+    let locked = false;
+    let onPad = { ...START };
+    let activeMult = 1;
+    let combo = 0;
+    let riskProfile = localStorage.getItem("leapRiskProfile") || "balanced";
+    let serverSeed = "";
+    let clientSeed = "";
+    let mysteryByRow = []; // boolean[][] mystery flags
+    let mysteryBonusByPad = []; // number[][] bonus mult if mystery+safe revealed
+    let lastResult = null; // {win, mult, character}
+    let lastBetForRetry = 100;
+    window.__leapAnalytics = window.__leapAnalytics || [];
+    const CONTRAST_KEY = "leapContrast";
+    const padTip = document.getElementById("padTip");
+    const failFlash = document.getElementById("failFlash");
+    const comboBadge = document.getElementById("comboBadge");
+    const segBar = document.getElementById("segBar");
+    const oddsLine = document.getElementById("oddsLine");
+    const contrastBtn = document.getElementById("contrastBtn");
+    const clientSeedInput = document.getElementById("clientSeedInput");
+
+    function track(type, extra = {}) {
+      try {
+        window.__leapAnalytics.push({ t: Date.now(), type, ...extra });
+      } catch (_) {}
+    }
+    function randomHex(bytes = 16) {
+      const a = new Uint8Array(bytes);
+      crypto.getRandomValues(a);
+      return [...a].map((b) => b.toString(16).padStart(2, "0")).join("");
+    }
+    async function sha256Hex(str) {
+      const data = new TextEncoder().encode(str);
+      const buf = await crypto.subtle.digest("SHA-256", data);
+      return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    }
+    function profileMods() {
+      // Conservative: more safe / slightly lower mults
+      // High-Roller: fewer safe / higher mults
+      // Balanced: unchanged
+      if (riskProfile === "conservative") return { passDelta: 1, multScale: 0.9, mysteryRate: 0.08 };
+      if (riskProfile === "high-roller") return { passDelta: -1, multScale: 1.2, mysteryRate: 0.12 };
+      return { passDelta: 0, multScale: 1, mysteryRate: 0.1 };
+    }
+    function effectiveRow(row) {
+      const mods = profileMods();
+      let pass = row.pass != null ? row.pass : 1;
+      pass = Math.max(1, Math.min(row.count - (row.count > 1 ? 1 : 0), pass + mods.passDelta));
+      // ensure at least 1 fail when count>1 for high-roller; conservative can have more safe
+      if (riskProfile === "high-roller" && row.count > 1) pass = Math.min(pass, row.count - 1);
+      if (riskProfile === "conservative" && row.count > 2) pass = Math.min(row.count - 1, Math.max(pass, row.pass + 1));
+      const mult = Math.round(row.mult * mods.multScale * 100) / 100;
+      return { ...row, pass, mult };
+    }
+    function effectiveRows() {
+      return activeRows().map(effectiveRow);
+    }
+    function setCombo(n, pop = false) {
+      combo = Math.max(0, n);
+      if (!comboBadge) return;
+      if (combo <= 0) {
+        comboBadge.classList.remove("show", "pop");
+        comboBadge.textContent = "Combo ×0";
+        return;
+      }
+      comboBadge.textContent = `Combo ×${combo}`;
+      comboBadge.classList.add("show");
+      if (pop) {
+        comboBadge.classList.remove("pop");
+        void comboBadge.offsetWidth;
+        comboBadge.classList.add("pop");
+      }
+    }
+    function resetCombo() { setCombo(0); }
+    function updateSegBar() {
+      if (!segBar) return;
+      const rows = effectiveRows();
+      segBar.innerHTML = "";
+      rows.forEach((_, i) => {
+        const s = document.createElement("span");
+        if (i < rowIndex) s.className = "done";
+        else if (i === rowIndex) s.className = "current";
+        segBar.appendChild(s);
+      });
+    }
+    function updateOddsLine() {
+      if (!oddsLine) return;
+      const rows = effectiveRows();
+      const row = rows[rowIndex] || rows[0];
+      if (!row) { oddsLine.textContent = ""; return; }
+      const pct = Math.round((row.pass / row.count) * 100);
+      oddsLine.textContent = `Odds: ${row.pass}/${row.count} safe · ~${pct}% · ${row.mult}x`;
+    }
+    function fairnessHtml() {
+      return `<div><b>serverSeed</b>: ${serverSeed || "—"}</div>
+        <div><b>clientSeed</b>: ${clientSeed || "—"}</div>
+        <div style="margin-top:4px;opacity:.8">Derived via SHA-256(serverSeed:clientSeed:row:pad)</div>`;
+    }
+    function fillFairnessPanels() {
+      const body = fairnessHtml();
+      const a = document.getElementById("fairnessPassBody");
+      const b = document.getElementById("fairnessFailBody");
+      if (a) a.innerHTML = body;
+      if (b) b.innerHTML = body;
+    }
+    function setCharAnim(cls) {
+      character.classList.remove("idle", "anticipate", "celebrate", "fail-react");
+      if (cls) character.classList.add(cls);
+    }
+    function showPadTip(padEl, i) {
+      if (!padTip || !padEl) return;
+      const rows = effectiveRows();
+      const row = rows[rowIndex];
+      if (!row) return;
+      const nextMult = row.mult;
+      const pct = Math.round((row.pass / row.count) * 100);
+      const isMystery = (mysteryByRow[rowIndex] || [])[i];
+      padTip.innerHTML = isMystery
+        ? `? Mystery · up to ${nextMult}x+<small>${row.pass} safe / ${row.count} pads · ~${pct}%</small>`
+        : `${activeMult}x → <span class="big">${nextMult}x</span><small>${row.pass} safe / ${row.count} pads · ~${pct}%</small>`;
+      padTip.style.left = padEl.style.left;
+      padTip.style.top = padEl.style.top;
+      padTip.classList.add("show");
+    }
+    function hidePadTip() {
+      if (padTip) padTip.classList.remove("show");
+    }
+    function spawnTrail(from, to) {
+      const steps = 5;
+      for (let s = 1; s <= steps; s++) {
+        const t = s / (steps + 1);
+        const el = document.createElement("div");
+        el.className = "jump-trail";
+        el.style.left = (from.x + (to.x - from.x) * t) + "%";
+        el.style.top = (from.y + (to.y - from.y) * t - 6 * Math.sin(Math.PI * t)) + "%";
+        world.appendChild(el);
+        setTimeout(() => el.remove(), 750);
+      }
+      const rip = document.createElement("div");
+      rip.className = "jump-ripple";
+      rip.style.left = to.x + "%";
+      rip.style.top = to.y + "%";
+      world.appendChild(rip);
+      setTimeout(() => rip.remove(), 600);
+    }
+    function riskClassForMult(mult) {
+      if (mult >= 20) return "risk-max";
+      if (mult >= 5) return "risk-high";
+      if (mult >= 2.5) return "risk-mid";
+      return "risk-low";
+    }
+    function pulseBoostForMult(mult) {
+      return Math.min(10, Math.max(0, (mult - 1) * 1.2));
+    }
+    function flashFail() {
+      if (!failFlash) return;
+      failFlash.classList.remove("show");
+      void failFlash.offsetWidth;
+      failFlash.classList.add("show");
+      setTimeout(() => failFlash.classList.remove("show"), 600);
+    }
+    function vibratePass() {
+      try { if (navigator.vibrate) navigator.vibrate(12); } catch (_) {}
+    }
+    function applyContrast(on) {
+      document.documentElement.classList.toggle("contrast", !!on);
+      if (contrastBtn) {
+        contrastBtn.setAttribute("aria-pressed", on ? "true" : "false");
+        contrastBtn.textContent = on ? "◑ Contrast" : "◐ Contrast";
+      }
+      localStorage.setItem(CONTRAST_KEY, on ? "1" : "0");
+    }
+    applyContrast(localStorage.getItem(CONTRAST_KEY) === "1");
+    if (contrastBtn) {
+      contrastBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        applyContrast(!document.documentElement.classList.contains("contrast"));
+      });
+    }
+    function syncRiskProfileUi() {
+      document.querySelectorAll("#riskProfiles [data-profile]").forEach((b) => {
+        b.classList.toggle("active", b.dataset.profile === riskProfile);
+      });
+    }
+    syncRiskProfileUi();
+    document.querySelectorAll("#riskProfiles [data-profile]").forEach((b) => {
+      b.addEventListener("click", () => {
+        riskProfile = b.dataset.profile;
+        localStorage.setItem("leapRiskProfile", riskProfile);
+        syncRiskProfileUi();
+        track("risk_profile", { profile: riskProfile });
+      });
+    });
+    async function makeShareCard() {
+      const r = lastResult || { win: false, mult: 1, character: currentPlayer().name };
+      const canvas = document.createElement("canvas");
+      canvas.width = 720; canvas.height = 400;
+      const ctx = canvas.getContext("2d");
+      const g = ctx.createLinearGradient(0, 0, 720, 400);
+      g.addColorStop(0, "#0b2a22"); g.addColorStop(1, "#1a0a28");
+      ctx.fillStyle = g; ctx.fillRect(0, 0, 720, 400);
+      ctx.fillStyle = "#ff7ec8"; ctx.font = "bold 36px sans-serif";
+      ctx.fillText("LIL Foot Leap", 40, 70);
+      ctx.fillStyle = "#f4fff8"; ctx.font = "bold 28px sans-serif";
+      ctx.fillText(r.character || currentPlayer().name, 40, 130);
+      ctx.fillStyle = r.win ? "#2ee59d" : "#ff3b5c";
+      ctx.font = "bold 48px sans-serif";
+      ctx.fillText(r.win ? `WIN · ${r.mult}x` : "LOSS", 40, 210);
+      ctx.fillStyle = "#ffe56a"; ctx.font = "22px sans-serif";
+      ctx.fillText(r.win ? `Cashed ${fmt((r.payout || 0))} $BIG` : `Stake lost`, 40, 260);
+      ctx.fillStyle = "#ffffff88"; ctx.font = "16px sans-serif";
+      ctx.fillText(`Profile: ${riskProfile}`, 40, 320);
+      return canvas;
+    }
+    async function shareResult() {
+      const canvas = await makeShareCard();
+      const blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
+      const file = new File([blob], "lil-foot-leap-result.png", { type: "image/png" });
+      try {
+        if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: "LIL Foot Leap", text: "My leap result" });
+          return;
+        }
+      } catch (_) {}
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "lil-foot-leap-result.png";
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    }
+
+    function shoreStart() {
+      return level === 2 ? START_L2 : START_L1;
+    }
+    function fmt(n) {
+      return Math.round(n).toLocaleString("en-US");
+    }
+    function saveBal() {
+      localStorage.setItem(LS_KEY, String(Math.max(0, Math.round(balance))));
+      balBadge.textContent = fmt(balance);
+      if (swampSkipBtn) swampSkipBtn.disabled = balance < SWAMP_SKIP_COST + bet;
+      if (startBtn) startBtn.disabled = bet > balance;
+    }
+    function setBet(v) {
+      bet = Math.min(100000, Math.max(100, Math.round(Number(v) / 100) * 100));
+      betRange.value = String(bet);
+      betVal.textContent = fmt(bet);
+      startBtn.disabled = bet > balance;
+      if (swampSkipBtn) swampSkipBtn.disabled = balance < SWAMP_SKIP_COST + bet;
+      const top = effectiveRow(ROWS[4]).mult;
+      oddsBadge.textContent = `Bet ${fmt(bet)} · ${riskProfile} · → ${top}x`;
+    }
+    function isPortraitPlay() {
+      return window.matchMedia("(orientation: portrait) and (max-width: 899px)").matches;
+    }
+    function setStageBg(mode) {
+      // Always use play scene (no baked character) so portrait stretch
+      // doesn't warp Lil Foot; overlay sprite keeps natural aspect.
+      if (level === 2) {
+        world.classList.add("theme-l2");
+        world.style.backgroundImage = 'url("./public/scene-l2-play.png?v=35")';
+        document.body.style.background = "#07140f";
+      } else {
+        world.classList.remove("theme-l2");
+        world.style.backgroundImage = 'url("./public/scene-play.png?v=35")';
+        document.body.style.background = "";
+      }
+    }
+    function updateLevelBadge() {
+      if (!levelBadge) return;
+      levelBadge.textContent = level === 2 ? "Level 2 · Swamp" : "Level 1 · Pond";
+    }
+    /** On-screen Lil Foot size: counter camera zoom so character never dominates (~≤12–14% vw). */
+    function applyCharSize(camScale) {
+      const portrait = isPortraitPlay();
+      // Later rows: slight perspective shrink in world space
+      const rowFactor = rowIndex <= 0 ? 1 : Math.max(0.62, 1 - rowIndex * 0.07);
+      // Counteract camera scale so visual size stays roughly constant
+      const counter = camScale > 1 ? (1 / camScale) : 1;
+      // Target ~10–12% of viewport width on screen after camera
+      if (portrait) {
+        const vw = (rowIndex === 0 ? 12 : 10.5) * rowFactor;
+        // Use vw so #app portrait stretch does not elongate the sprite; /camScale keeps on-screen size stable
+        const pxCap = Math.round((rowIndex === 0 ? 68 : 56) * rowFactor * Math.max(counter, 0.4));
+        character.style.width = `min(${(vw * Math.max(counter, 0.4)).toFixed(2)}vw, ${pxCap}px)`;
+      } else {
+        const basePct = (rowIndex === 0 ? 8.5 : 7.5) * rowFactor * Math.max(counter, 0.42);
+        character.style.width = basePct.toFixed(2) + "%";
+      }
+    }
+    /**
+     * Camera: transform on #world (origin 0 0).
+     * Screen pos of world (wx,wy)% ≈ (wx*s + tx, wy*s + ty).
+     * Row 0: identity (shore + row-1 pads).
+     * Row 1+: zoom/pan so next pads sit upper-middle and standing pad is lower.
+     */
+    function setCamera(forRowIndex, animate = false) {
+      let s = 1, tx = 0, ty = 0;
+      if (forRowIndex > 0) {
+        const standY = onPad.y;
+        const standX = onPad.x;
+        const next = activeRows()[forRowIndex];
+        const nextY = next.y;
+        const nextXs = next.xs;
+        const portrait = isPortraitPlay();
+        const padMargin = portrait ? 10 : 8;
+        const footMargin = portrait ? 14 : 12;
+        let viewTop = nextY - padMargin;
+        let viewBottom = standY + footMargin;
+        const minSpan = portrait ? 42 : 48;
+        let span = viewBottom - viewTop;
+        if (span < minSpan) {
+          const extra = minSpan - span;
+          viewTop -= extra * 0.45;
+          viewBottom += extra * 0.55;
+          span = minSpan;
+        }
+        s = 100 / span;
+        // Fit ALL next-row pads horizontally (don't center only on landing X — that clips the other pad)
+        const xPad = portrait ? 10 : 8;
+        const xMin = Math.min(standX, ...nextXs) - xPad;
+        const xMax = Math.max(standX, ...nextXs) + xPad;
+        let xSpan = xMax - xMin;
+        if (xSpan < 28) {
+          const midX0 = (xMin + xMax) / 2;
+          xSpan = 28;
+          // expand around mid for stable framing
+        }
+        const maxS = portrait ? 2.35 : 1.85;
+        const sFitX = 100 / Math.max(xSpan, 1);
+        s = Math.min(s, maxS, sFitX);
+        if (s > maxS) s = maxS;
+        const midY = (nextY + standY) / 2;
+        // Prefer mapping viewTop to top when unclamped; else bias mid
+        const tyFromTop = -viewTop * s;
+        const tyBiased = (portrait ? 56 : 54) - midY * s;
+        ty = (100 / span <= maxS && 100 / span <= sFitX) ? tyFromTop : tyBiased;
+        // Center on midpoint of next pads (+ stand), then clamp so every next pad stays on-screen
+        const focusX = nextXs.reduce((a, b) => a + b, 0) / nextXs.length;
+        tx = 50 - focusX * s;
+        const minTx = 100 - 100 * s;
+        const maxTx = 0;
+        tx = Math.min(maxTx, Math.max(minTx, tx));
+        // Nudge so leftmost/rightmost next pads have margin inside the viewport
+        const screenOf = (wx) => wx * s + tx;
+        const leftPad = Math.min(...nextXs);
+        const rightPad = Math.max(...nextXs);
+        const edge = portrait ? 8 : 6;
+        if (screenOf(leftPad) < edge) tx += edge - screenOf(leftPad);
+        if (screenOf(rightPad) > 100 - edge) tx -= screenOf(rightPad) - (100 - edge);
+        tx = Math.min(maxTx, Math.max(minTx, tx));
+      }
+      if (animate) {
+        world.classList.add("cam-tween");
+      } else {
+        world.classList.remove("cam-tween");
+        // force reflow so next tween can run cleanly
+        void world.offsetWidth;
+      }
+      world.style.transform = `translate(${tx.toFixed(3)}%, ${ty.toFixed(3)}%) scale(${s.toFixed(4)})`;
+      applyCharSize(s);
+      if (animate) {
+        clearTimeout(setCamera._t);
+        setCamera._t = setTimeout(() => world.classList.remove("cam-tween"), 380);
+      }
+      return { s, tx, ty };
+    }
+    function setChar(xPct, yPct, extra = "translate(-50%, -100%)") {
+      character.style.left = xPct + "%";
+      character.style.top = yPct + "%";
+      character.style.transform = extra;
+    }
+    function resetCharacterToShore() {
+      character.classList.remove("jumping", "fallen", "sinking", "eaten", "idle", "anticipate", "celebrate", "fail-react");
+      character.style.transition = "none";
+      character.style.opacity = "1";
+      const shore = shoreStart();
+      onPad = { ...shore };
+      setChar(shore.x, shore.y);
+      splashFx.classList.remove("show");
+      if (alligatorFx) {
+        alligatorFx.classList.remove("show");
+        alligatorFx.style.opacity = "0";
+      }
+      setCamera(0, false);
+    }
+    function clearPads() { padsRoot.innerHTML = ""; }
+    function rowOdds(row) {
+      const pass = row.pass != null ? row.pass : 1;
+      return `${pass}/${row.count}`;
+    }
+    function pickSafeIndices(count, pass) {
+      const idxs = Array.from({ length: count }, (_, i) => i);
+      for (let i = idxs.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [idxs[i], idxs[j]] = [idxs[j], idxs[i]];
+      }
+      return idxs.slice(0, pass).sort((a, b) => a - b);
+    }
+    async function hashToUnit(seedStr) {
+      const hex = await sha256Hex(seedStr);
+      // use first 8 hex chars as uint32
+      const n = parseInt(hex.slice(0, 8), 16);
+      return n / 0x100000000;
+    }
+    async function pickSafeIndicesFair(count, pass, row) {
+      // Score each pad by hash; lowest scores are safe
+      const scored = [];
+      for (let i = 0; i < count; i++) {
+        const u = await hashToUnit(`${serverSeed}:${clientSeed}:${row}:${i}`);
+        scored.push({ i, u });
+      }
+      scored.sort((a, b) => a.u - b.u);
+      return scored.slice(0, pass).map((s) => s.i).sort((a, b) => a - b);
+    }
+    async function rollSafeBoard() {
+      const rows = effectiveRows();
+      const mods = profileMods();
+      safeByRow = [];
+      mysteryByRow = [];
+      mysteryBonusByPad = [];
+      for (let ri = 0; ri < rows.length; ri++) {
+        const row = rows[ri];
+        const pass = row.pass;
+        const safe = await pickSafeIndicesFair(row.count, pass, ri);
+        safeByRow.push(safe);
+        const myst = [];
+        const bonus = [];
+        for (let i = 0; i < row.count; i++) {
+          const mu = await hashToUnit(`${serverSeed}:${clientSeed}:mystery:${ri}:${i}`);
+          const isMyst = mu < mods.mysteryRate;
+          myst.push(isMyst);
+          if (isMyst) {
+            const bu = await hashToUnit(`${serverSeed}:${clientSeed}:bonus:${ri}:${i}`);
+            bonus.push(Math.round((0.25 + bu * 0.75) * 100) / 100); // +0.25..+1
+          } else {
+            bonus.push(0);
+          }
+        }
+        mysteryByRow.push(myst);
+        mysteryBonusByPad.push(bonus);
+      }
+    }
+    function updateHud() {
+      const row = effectiveRows()[rowIndex];
+      updateLevelBadge();
+      rowBadge.textContent = `${row.label} · ${row.count} pad${row.count > 1 ? "s" : ""} · ${rowOdds(row)}`;
+      oddsBadge.textContent = `${rowOdds(row)} · now ${activeMult}x · cash ${fmt(bet * activeMult)}`;
+      updateSegBar();
+      updateOddsLine();
+    }
+    function padSizeForRow(ri) {
+      if (level === 2) return Math.max(3.6, 5.4 - ri * 0.5);
+      return Math.max(4.2, 6.4 - ri * 0.55);
+    }
+    function renderPads(interactive) {
+      clearPads();
+      hidePadTip();
+      const base = activeRows()[rowIndex];
+      const row = effectiveRows()[rowIndex];
+      const size = padSizeForRow(rowIndex);
+      const portrait = isPortraitPlay();
+      const padName = level === 2 ? "Rock" : "Lily pad";
+      const rClass = riskClassForMult(row.mult);
+      const boost = pulseBoostForMult(row.mult);
+      base.xs.forEach((x, i) => {
+        const btn = document.createElement("button");
+        const isMyst = (mysteryByRow[rowIndex] || [])[i];
+        btn.className = "pad " + rClass + (isMyst ? " mystery" : "") + (interactive ? "" : " disabled");
+        btn.type = "button";
+        btn.dataset.i = String(i);
+        btn.dataset.row = String(rowIndex);
+        btn.style.left = x + "%";
+        btn.style.top = base.y + "%";
+        btn.style.width = size + "%";
+        btn.style.setProperty("--pulse-boost", boost + "px");
+        btn.style.minWidth = "48px";
+        btn.style.minHeight = "48px";
+        if (portrait) { btn.style.minWidth = "48px"; btn.style.minHeight = "48px"; }
+        btn.setAttribute("aria-label", `${padName} ${i + 1}${isMyst ? " mystery" : ""} · ${row.mult}x`);
+        if (isMyst) {
+          const m = document.createElement("span");
+          m.className = "mystery-mark";
+          m.textContent = "?";
+          btn.appendChild(m);
+        }
+        if (interactive) {
+          btn.addEventListener("click", () => onPick(i, btn));
+          btn.addEventListener("pointerenter", () => showPadTip(btn, i));
+          btn.addEventListener("pointerleave", hidePadTip);
+          btn.addEventListener("focus", () => showPadTip(btn, i));
+          btn.addEventListener("blur", hidePadTip);
+        }
+        padsRoot.appendChild(btn);
+      });
+      setCharAnim("idle");
+    }
+    /** After fail: show every pad on the board with X on fails / check on safes. */
+    function revealAllPads(failedPadIndex = -1, failedRow = -1) {
+      clearPads();
+      hidePadTip();
+      const portrait = isPortraitPlay();
+      // Rare near-miss: highlight one adjacent fail pad as "so close"
+      let nearMiss = null;
+      if (failedRow >= 0 && failedPadIndex >= 0 && Math.random() < 0.35) {
+        const row = activeRows()[failedRow];
+        const safe = new Set(safeByRow[failedRow] || []);
+        const candidates = [];
+        for (let i = 0; i < row.count; i++) {
+          if (i === failedPadIndex) continue;
+          if (!safe.has(i) && Math.abs(i - failedPadIndex) === 1) candidates.push(i);
+        }
+        // also allow any other fail if no adjacent
+        if (!candidates.length) {
+          for (let i = 0; i < row.count; i++) {
+            if (i !== failedPadIndex && !safe.has(i)) candidates.push(i);
+          }
+        }
+        if (candidates.length) nearMiss = { row: failedRow, pad: candidates[Math.floor(Math.random() * candidates.length)] };
+      }
+      activeRows().forEach((row, ri) => {
+        const safe = new Set(safeByRow[ri] || []);
+        const size = padSizeForRow(ri);
+        row.xs.forEach((x, i) => {
+          const btn = document.createElement("button");
+          const isSafe = safe.has(i);
+          btn.className = "pad reveal " + (isSafe ? "reveal-safe" : "reveal-fail");
+          if (nearMiss && nearMiss.row === ri && nearMiss.pad === i) btn.classList.add("near-miss");
+          btn.type = "button";
+          btn.disabled = true;
+          btn.style.left = x + "%";
+          btn.style.top = row.y + "%";
+          btn.style.width = size + "%";
+          if (portrait) btn.style.minWidth = "36px";
+          const mark = document.createElement("span");
+          mark.className = "mark";
+          mark.textContent = isSafe ? "✓" : "✕";
+          btn.appendChild(mark);
+          padsRoot.appendChild(btn);
+        });
+      });
+    }
+    function hidePanels() {
+      startPanel.classList.add("hidden");
+      passPanel.classList.add("hidden");
+      failPanel.classList.add("hidden");
+    }
+    function setMode(mode) {
+      hidePanels();
+      hint.classList.toggle("show", mode === "pick");
+      banner.className = "banner";
+      banner.textContent = "";
+      locked = mode !== "pick" && mode !== "menu";
+
+      if (mode === "menu") {
+        startPanel.classList.remove("hidden");
+        level = 1;
+        rowIndex = 0;
+        activeMult = 1;
+        safeByRow = [];
+        mysteryByRow = [];
+        mysteryBonusByPad = [];
+        resetCombo();
+        hidePadTip();
+        setCharAnim("");
+        world.classList.remove("screen-load");
+        setStageBg("menu");
+        clearPads();
+        resetCharacterToShore();
+        character.style.opacity = "1";
+        setBet(bet);
+        saveBal();
+        updateLevelBadge();
+        const er0 = effectiveRow(ROWS[0]);
+        rowBadge.textContent = `Row 1 · ${er0.count} pads · ${rowOdds(er0)}`;
+        oddsBadge.textContent = `Bet ${fmt(bet)} · 1.25x → 5x`;
+        updateSegBar();
+        updateOddsLine();
+      } else if (mode === "pick") {
+        setStageBg("play");
+        character.style.opacity = "1";
+        updateHud();
+        renderPads(true);
+      } else if (mode === "pass") {
+        passPanel.classList.remove("hidden");
+        const rows = effectiveRows();
+        const next = rows[rowIndex + 1];
+        const cash = bet * activeMult;
+        continueBtn.dataset.l2 = "";
+        fillFairnessPanels();
+        lastResult = { win: true, mult: activeMult, character: currentPlayer().name, payout: cash };
+        if (next) {
+          continueBtn.classList.remove("hidden");
+          continueBtn.textContent = `CONTINUE → ${next.label} (${rowOdds(next)} → ${next.mult}x)`;
+          passText.textContent = `Now worth ${fmt(cash)} $BIG at ${activeMult}x. Continue for a shot at ${next.mult}x, or cash out anytime.`;
+        } else if (level === 1) {
+          continueBtn.classList.remove("hidden");
+          continueBtn.dataset.l2 = "1";
+          continueBtn.textContent = "CONTINUE → LEVEL 2";
+          passText.textContent = `Pond cleared at ${activeMult}x · ${fmt(cash)} $BIG. Cash out, or continue into the swamp (rocks · alligator · up to 50x on the same stake).`;
+        } else {
+          continueBtn.classList.add("hidden");
+          continueBtn.dataset.l2 = "";
+          passText.textContent = `Swamp cleared at ${activeMult}x · ${fmt(cash)} $BIG.`;
+        }
+        cashOutBtn.textContent = `💰 CASH OUT ${fmt(cash)}`;
+        cashOutBtn.classList.remove("ghost");
+        cashOutBtn.classList.add("ui");
+      } else if (mode === "fail") {
+        failPanel.classList.remove("hidden");
+        fillFairnessPanels();
+        lastResult = { win: false, mult: 1, character: currentPlayer().name, payout: 0 };
+        // Enable try-again if balance allows last bet
+        const again = document.getElementById("againBtn");
+        if (again) again.disabled = lastBetForRetry > balance;
+      }
+    }
+    async function beginRunSeeds() {
+      serverSeed = randomHex(16);
+      const custom = (clientSeedInput && clientSeedInput.value.trim()) || "";
+      clientSeed = custom || randomHex(8);
+      if (clientSeedInput && !custom) clientSeedInput.placeholder = clientSeed.slice(0, 12) + "…";
+    }
+    async function startRoundFromShore() {
+      setBet(bet);
+      if (bet > balance) return;
+      lastBetForRetry = bet;
+      balance -= bet;
+      saveBal();
+      level = 1;
+      rowIndex = 0;
+      activeMult = 1;
+      resetCombo();
+      await beginRunSeeds();
+      setStageBg("play");
+      world.classList.remove("screen-load");
+      resetCharacterToShore(); // also setCamera(0)
+      character.style.opacity = "1";
+      await rollSafeBoard(); // pre-roll entire board; continue does not re-roll
+      track("risk_profile", { profile: riskProfile, level: 1 });
+      setMode("pick");
+    }
+    /** After clearing L1: keep stake, enter swamp at 1x until first L2 pass. */
+    async function startLevel2() {
+      level = 2;
+      rowIndex = 0;
+      activeMult = 1;
+      // Keep seeds from current run if present; else mint
+      if (!serverSeed) await beginRunSeeds();
+      setStageBg("play");
+      world.classList.remove("screen-load");
+      resetCharacterToShore();
+      character.style.opacity = "1";
+      await rollSafeBoard();
+      updateLevelBadge();
+      hidePanels();
+      locked = true;
+      world.classList.add("cam-tween", "screen-load");
+      setCamera(0, true);
+      clearTimeout(startLevel2._t);
+      startLevel2._t = setTimeout(() => {
+        world.classList.remove("screen-load");
+        setMode("pick");
+      }, 320);
+    }
+    function continueNextRow() {
+      rowIndex += 1;
+      if (rowIndex >= activeRows().length) {
+        cashOut();
+        return;
+      }
+      // keep pre-rolled safeByRow — do not re-roll
+      character.classList.remove("jumping");
+      character.style.transition = "none";
+      setChar(onPad.x, onPad.y, "translate(-50%, -100%)");
+      // Brief “new screen” load: fade + camera reframe, then show next pads
+      locked = true;
+      clearPads();
+      hint.classList.remove("show");
+      hidePanels();
+      world.classList.add("cam-tween", "screen-load");
+      setCamera(rowIndex, true);
+      clearTimeout(continueNextRow._t);
+      continueNextRow._t = setTimeout(() => {
+        world.classList.remove("screen-load");
+        setMode("pick");
+      }, 320);
+    }
+    function cashOut() {
+      const win = bet * activeMult;
+      balance += win;
+      saveBal();
+      track("cash_out", { mult: activeMult, win, level, row: rowIndex, combo });
+      lastResult = { win: true, mult: activeMult, character: currentPlayer().name, payout: win };
+      resetCombo();
+      setMode("menu");
+    }
+    function animateJump(padEl, pass, padIndex) {
+      locked = true;
+      hidePadTip();
+      hint.classList.remove("show");
+      [...padsRoot.querySelectorAll(".pad")].forEach((p) => p.classList.add("disabled"));
+      padEl.classList.remove("disabled");
+      const x = parseFloat(padEl.style.left);
+      const y = parseFloat(padEl.style.top);
+      const from = { ...onPad };
+      setCharAnim("anticipate");
+      character.classList.add("jumping");
+      character.style.transition = "left 0.55s cubic-bezier(.2,.8,.2,1), top 0.55s cubic-bezier(.15,.9,.25,1), transform 0.55s ease";
+      setTimeout(() => {
+        setCharAnim("");
+        requestAnimationFrame(() => {
+          setChar((from.x + x) / 2, Math.min(from.y, y) - 8, "translate(-50%, -100%) scale(1.05, 0.92) rotate(-6deg)");
+        });
+      }, 180);
+      setTimeout(() => setChar(x, y + 0.6, "translate(-50%, -100%)"), 400);
+      setTimeout(() => {
+        if (pass) {
+          padEl.classList.add("chosen-pass");
+          // reveal mystery mark
+          const mm = padEl.querySelector(".mystery-mark");
+          if (mm) mm.remove();
+          padEl.classList.remove("mystery");
+          onPad = { x, y: y + 0.6 };
+          setChar(x, y + 0.6, "translate(-50%, -100%)");
+          spawnTrail(from, { x, y: y + 0.6 });
+          let mult = effectiveRows()[rowIndex].mult;
+          const bonus = (mysteryBonusByPad[rowIndex] || [])[padIndex] || 0;
+          if (bonus > 0) mult = Math.round((mult + bonus) * 100) / 100;
+          activeMult = mult;
+          setCombo(combo + 1, true);
+          setCharAnim("celebrate");
+          banner.textContent = bonus > 0 ? `PASS +${bonus}` : "PASS";
+          banner.className = "banner show pass";
+          playPassSfx();
+          vibratePass();
+          setTimeout(() => setMode("pass"), 650);
+        } else {
+          padEl.classList.add("chosen-fail");
+          setChar(x, y + 0.6, "translate(-50%, -100%)");
+          setCharAnim("fail-react");
+          flashFail();
+          track("fail_row", { level, row: rowIndex, pad: padIndex, combo });
+          resetCombo();
+          setTimeout(() => {
+            const row = effectiveRows()[rowIndex];
+            const safe = safeByRow[rowIndex] || [];
+            const safeLabel = safe.map((i) => `#${i + 1}`).join(", ");
+            if (level === 2) {
+              // Alligator leap + bite fail (no splash on L2)
+              character.classList.add("sinking");
+              character.style.transition = "left 0.4s ease-in, top 0.4s ease-in, transform 0.4s ease-in, opacity 0.35s ease-in";
+              splashFx.classList.remove("show");
+              if (alligatorFx) {
+                alligatorFx.style.left = x + "%";
+                alligatorFx.style.top = (y + 4) + "%";
+                alligatorFx.classList.remove("show");
+                void alligatorFx.offsetWidth; // reflow — restart leap-bite
+                alligatorFx.classList.add("show");
+              }
+              // chomp SFX at bite snap (~200ms into leap)
+              setTimeout(() => playChompSfx(), 200);
+              setChar(x, y + 2, "translate(-50%, -90%) rotate(10deg) scale(0.85)");
+              setTimeout(() => {
+                setChar(x + 1.5, y + 4, "translate(-40%, -50%) rotate(25deg) scale(0.55)");
+                character.style.opacity = "0.4";
+              }, 280);
+              setTimeout(() => {
+                character.classList.add("fallen", "eaten");
+                character.style.opacity = "0";
+                banner.textContent = "CHOMP";
+                banner.className = "banner show fail";
+                if (failTitle) failTitle.textContent = "Eaten…";
+                failText.textContent = `Alligator ate you — lost ${fmt(bet)} $BIG. ${row.pass != null ? row.pass : 1} of ${row.count} safe on ${row.label}: ${safeLabel}.`;
+                activeMult = 1;
+                revealAllPads(padIndex, rowIndex);
+                setTimeout(() => setMode("fail"), 900);
+              }, 620);
+            } else {
+              character.classList.add("sinking");
+              character.style.transition = "left 0.55s ease-in, top 0.55s cubic-bezier(.4,.05,.7,.2), transform 0.55s ease-in, opacity 0.5s ease-in";
+              splashFx.style.left = x + "%";
+              splashFx.style.top = y + 3 + "%";
+              splashFx.classList.remove("show");
+              // void reflow so splash animation restarts
+              void splashFx.offsetWidth;
+              splashFx.classList.add("show");
+              playSplashSfx();
+              // drop below pad into water
+              setChar(x, y + 7, "translate(-50%, -40%) rotate(18deg) scale(0.92, 0.88)");
+              setTimeout(() => {
+                setChar(x, y + 16, "translate(-50%, 20%) rotate(32deg) scale(0.72, 0.55)");
+                character.style.opacity = "0.35";
+              }, 220);
+              setTimeout(() => {
+                setChar(x, y + 22, "translate(-50%, 55%) rotate(40deg) scale(0.55, 0.35)");
+                character.classList.add("fallen");
+                character.style.opacity = "0";
+                banner.textContent = "FAIL";
+                banner.className = "banner show fail";
+                if (failTitle) failTitle.textContent = "Splash…";
+                failText.textContent = `Lost ${fmt(bet)} $BIG. ${row.pass != null ? row.pass : 1} of ${row.count} safe on ${row.label}: ${safeLabel}.`;
+                activeMult = 1;
+                revealAllPads(padIndex, rowIndex);
+                setTimeout(() => setMode("fail"), 850);
+              }, 480);
+            }
+          }, 140);
+        }
+      }, 700);
+    }
+    function onPick(i, padEl) {
+      if (locked) return;
+      const safe = safeByRow[rowIndex] || [];
+      track("pad_choice", { level, row: rowIndex, pad: i, safe: safe.includes(i), profile: riskProfile });
+      animateJump(padEl, safe.includes(i), i);
+    }
+
+    betRange.addEventListener("input", () => setBet(betRange.value));
+    document.querySelectorAll(".presets [data-bet]").forEach((b) => {
+      b.addEventListener("click", () => setBet(b.dataset.bet));
+    });
+    if (switchPlayerBtn) {
+      switchPlayerBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        cyclePlayer();
+      });
+    }
+    startBtn.onclick = () => {
+      ensureAudio();
+      startRoundFromShore();
+    };
+    swampSkipBtn.onclick = async () => {
+      ensureAudio();
+      // 6,666 is an entry fee only — stake stays whatever they set on the slider
+      setBet(bet);
+      if (balance < SWAMP_SKIP_COST) return;
+      if (bet > balance - SWAMP_SKIP_COST) {
+        // need fee + stake available
+        return;
+      }
+      balance -= SWAMP_SKIP_COST;
+      saveBal();
+      await startRoundStakeThenLevel2();
+    };
+    async function startRoundStakeThenLevel2() {
+      if (bet > balance) return;
+      lastBetForRetry = bet;
+      balance -= bet;
+      saveBal();
+      resetCombo();
+      await beginRunSeeds();
+      await startLevel2();
+    };
+    document.getElementById("againBtn").onclick = async () => {
+      // Try Again: re-start same bet if balance allows
+      setBet(lastBetForRetry || bet);
+      if (bet > balance) {
+        setMode("menu");
+        return;
+      }
+      ensureAudio();
+      await startRoundFromShore();
+    };
+    document.getElementById("menuBtn").onclick = () => {
+      resetCombo();
+      setMode("menu");
+    };
+    cashOutBtn.onclick = cashOut;
+    continueBtn.onclick = () => {
+      if (continueBtn.dataset.l2 === "1") {
+        startLevel2();
+      } else {
+        continueNextRow();
+      }
+    };
+    const sharePassBtn = document.getElementById("sharePassBtn");
+    const shareFailBtn = document.getElementById("shareFailBtn");
+    if (sharePassBtn) sharePassBtn.onclick = () => shareResult();
+    if (shareFailBtn) shareFailBtn.onclick = () => shareResult();
+
+    function reframeOnViewport() {
+      const onMenu = !startPanel.classList.contains("hidden");
+      setCamera(onMenu ? 0 : rowIndex, false);
+    }
+    window.addEventListener("resize", reframeOnViewport);
+    window.addEventListener("orientationchange", () => setTimeout(reframeOnViewport, 80));
+
+    saveBal();
+    setBet(100);
+    setStageBg("menu");
+    applyPlayer(playerId, { persist: false });
+    setMode("menu");
+  </script>
+</body>
+</html>
